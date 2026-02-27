@@ -1,68 +1,58 @@
-import json
 import os
 import requests
+from flask import Flask, request, jsonify
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "https://ollama.com").rstrip("/")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3").strip()
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
+app = Flask(__name__)
 
-def handler(request):
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
-        "body": '{"ok":true,"msg":"api is live"}',
-    }
+@app.get("/api/main")
+def health_get():
+    return jsonify({"ok": True, "msg": "api is live (GET)"}), 200
 
-def handler(request):
+@app.post("/api/main")
+def health_post():
+    body = request.get_json(silent=True) or {}
+    prompt = (body.get("prompt") or "Say pong").strip()
+    return jsonify({"ok": True, "echo": prompt}), 200
+
+
+# Optional: Ollama test endpoint (uncomment when health works)
+@app.post("/api/ollama")
+def ollama():
+    base = os.getenv("OLLAMA_BASE_URL", "https://ollama.com").rstrip("/")
+    model = os.getenv("OLLAMA_MODEL", "llama3")
+    key = os.getenv("OLLAMA_API_KEY", "")
+
+    body = request.get_json(silent=True) or {}
+    prompt = (body.get("prompt") or "Say pong").strip()
+
+    url = f"{base}/api/chat"
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+
+    r = requests.post(
+        url,
+        headers=headers,
+        json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False},
+        timeout=60,
+    )
+
+    # pass-through status + response for debugging
+    data = {}
     try:
-        body = request.get_json() or {}
-        prompt = (body.get("prompt") or "Say 'pong'").strip()
+        data = r.json()
+    except Exception:
+        data = {"raw": r.text}
 
-        url = f"{OLLAMA_BASE_URL}/api/chat"
-        headers = {"Content-Type": "application/json"}
-        if OLLAMA_API_KEY:
-            headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+    content = ""
+    if isinstance(data, dict):
+        msg = data.get("message") or {}
+        content = msg.get("content") or data.get("response") or ""
 
-        r = requests.post(
-            url,
-            headers=headers,
-            json={
-                "model": OLLAMA_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-            },
-            timeout=60,
-        )
-
-        # Return upstream status + small snippet for debugging
-        try:
-            data = r.json()
-        except Exception:
-            data = {"raw": r.text}
-
-        content = ""
-        if isinstance(data, dict):
-            msg = data.get("message") or {}
-            content = msg.get("content") or data.get("response") or ""
-
-        return {
-            "statusCode": r.status_code,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({
-                "ok": r.ok,
-                "status": r.status_code,
-                "model": OLLAMA_MODEL,
-                "response": content,
-                "debug_keys_present": {
-                    "has_api_key": bool(OLLAMA_API_KEY),
-                    "base_url": OLLAMA_BASE_URL,
-                }
-            }),
-        }
-
-    except Exception as e:
-        return {
-            "statusCode": 500,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"ok": False, "error": str(e)}),
-        }
+    return jsonify({
+        "ok": r.ok,
+        "status": r.status_code,
+        "model": model,
+        "response": content,
+        "raw": data if not r.ok else None
+    }), r.status_code
