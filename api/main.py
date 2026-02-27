@@ -7,6 +7,13 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3").strip()
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
 
 def handler(request):
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": '{"ok":true,"msg":"api is live"}',
+    }
+
+def handler(request):
     try:
         body = request.get_json() or {}
         prompt = (body.get("prompt") or "Say 'pong'").strip()
